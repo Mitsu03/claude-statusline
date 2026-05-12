@@ -45,7 +45,7 @@ Add to `~/.claude/settings.json`:
 ### Pro/Max plans
 
 - **Model** — color-coded by family: amber (Opus), cyan (Haiku), blue (Sonnet)
-- **Git branch** — magenta, with `⎇` prefix
+- **Git branch** — magenta, with `⎇` prefix. Followed by a dirty-state indicator: `✓` (dim green) when clean, otherwise `+N` staged (green), `~N` modified (yellow), `?N` untracked (dim) — each part omitted when zero
 - **Context window %** — cyan under 50%, orange 50-80%, red above 80%
 - **5h rate limit** — `time_until_reset:used%:on_pace%↓` format, color-coded by usage
 - **7d rate limit** — same format, cyan

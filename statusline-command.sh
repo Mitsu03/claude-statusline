@@ -131,6 +131,9 @@ api_duration_ms=$(echo "$input"| jq -r '.cost.total_api_duration_ms // empty')
 lines_added=$(echo "$input"    | jq -r '.cost.total_lines_added // empty')
 lines_removed=$(echo "$input"  | jq -r '.cost.total_lines_removed // empty')
 session_id=$(echo "$input"     | jq -r '.session_id // empty')
+session_name=$(echo "$input"   | jq -r '.session_name // empty')
+effort_level=$(echo "$input"   | jq -r '.effort.level // empty')
+agent_name=$(echo "$input"     | jq -r '.agent.name // empty')
 total_input=$(echo "$input"    | jq -r '.context_window.total_input_tokens // empty')
 total_output=$(echo "$input"   | jq -r '.context_window.total_output_tokens // empty')
 cache_read=$(echo "$input"     | jq -r '.context_window.current_usage.cache_read_input_tokens // empty')
@@ -169,8 +172,58 @@ if [ -n "$model" ]; then
     add "${model_color}${model}${reset}"
 fi
 
-# Git branch
-[ -n "$branch" ] && add "${dim}⎇${reset} ${magenta}${branch}${reset}"
+# Effort level
+if [ -n "$effort_level" ]; then
+    case "$effort_level" in
+        low)    effort_color="$dim" ;;
+        medium) effort_color="$cyan" ;;
+        high)   effort_color="$orange" ;;
+        xhigh)  effort_color="$red" ;;
+        max)    effort_color="$red" ;;
+        *)      effort_color="$dim" ;;
+    esac
+    add "${effort_color}${effort_level}${reset}"
+fi
+
+# Agent name
+[ -n "$agent_name" ] && add "${dim}agent:${reset}${cyan}${agent_name}${reset}"
+
+# Git branch + dirty state
+if [ -n "$branch" ]; then
+    git_str="${dim}⎇${reset} ${magenta}${branch}${reset}"
+    porcelain=$(git -C "$cwd" --no-optional-locks status --porcelain 2>/dev/null)
+    if [ -z "$porcelain" ]; then
+        git_str+=" ${green}${dim}✓${reset}"
+    else
+        staged=$(  printf '%s\n' "$porcelain" | awk '/^[MADRC]/'        | wc -l | tr -d ' ')
+        modified=$(printf '%s\n' "$porcelain" | awk '/^.[MD]/'          | wc -l | tr -d ' ')
+        untracked=$(printf '%s\n' "$porcelain" | awk '/^\?\?/'          | wc -l | tr -d ' ')
+        [ "$staged"    -gt 0 ] && git_str+=" ${green}+${staged}${reset}"
+        [ "$modified"  -gt 0 ] && git_str+=" ${yellow}~${modified}${reset}"
+        [ "$untracked" -gt 0 ] && git_str+=" ${dim}?${untracked}${reset}"
+    fi
+    add "$git_str"
+fi
+
+# Pending ScheduleWakeup (shadowed by hooks/wakeup-marker.sh)
+wakeup_file="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/next-wakeup"
+wakeup_reason=""
+if [ -f "$wakeup_file" ]; then
+    wakeup_line=$(head -n1 "$wakeup_file" 2>/dev/null)
+    wakeup_ts="${wakeup_line%%	*}"
+    wakeup_reason="${wakeup_line#*	}"
+    if [ -n "$wakeup_ts" ] && [ "$wakeup_ts" -gt "$now" ] 2>/dev/null; then
+        secs_left=$(( wakeup_ts - now ))
+        if [ "$secs_left" -lt 60 ]; then wake_fmt="${secs_left}s"
+        elif [ "$secs_left" -lt 3600 ]; then wake_fmt="$((secs_left/60))m$((secs_left%60))s"
+        else wake_fmt="$((secs_left/3600))h$(( (secs_left%3600)/60 ))m"
+        fi
+        add "${yellow}⏰ ${wake_fmt}${reset}"
+    else
+        wakeup_reason=""
+        rm -f "$wakeup_file" 2>/dev/null
+    fi
+fi
 
 # Context window %
 if [ -n "$used" ]; then
@@ -299,3 +352,17 @@ if [ -z "$rl_five" ] && [ -z "$rl_seven" ] && [ -n "$cost_usd" ]; then
 fi
 
 printf "%b\n" "$out"
+
+# Line 2: cwd + session name
+out2=""
+if [ -n "$cwd" ]; then
+    cwd_display="${cwd/#$HOME/~}"
+    out2="${dim}${cwd_display}${reset}"
+fi
+[ -n "$session_name" ] && [ -n "$out2" ] && out2+="${sep}${dim}${session_name}${reset}"
+[ -n "$session_name" ] && [ -z "$out2" ] && out2="${dim}${session_name}${reset}"
+[ -n "$wakeup_reason" ] && {
+    [ -n "$out2" ] && out2+="${sep}"
+    out2+="${dim}⏰ ${wakeup_reason}${reset}"
+}
+[ -n "$out2" ] && printf "%b\n" "$out2"
