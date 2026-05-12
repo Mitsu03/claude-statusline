@@ -132,6 +132,9 @@ lines_added=$(echo "$input"    | jq -r '.cost.total_lines_added // empty')
 lines_removed=$(echo "$input"  | jq -r '.cost.total_lines_removed // empty')
 session_id=$(echo "$input"     | jq -r '.session_id // empty')
 session_name=$(echo "$input"   | jq -r '.session_name // empty')
+transcript_path=$(echo "$input"| jq -r '.transcript_path // empty')
+transcript_file="${transcript_path##*/}"
+transcript_file="${transcript_file%.jsonl}"
 effort_level=$(echo "$input"   | jq -r '.effort.level // empty')
 agent_name=$(echo "$input"     | jq -r '.agent.name // empty')
 total_input=$(echo "$input"    | jq -r '.context_window.total_input_tokens // empty')
@@ -361,6 +364,10 @@ if [ -n "$cwd" ]; then
 fi
 [ -n "$session_name" ] && [ -n "$out2" ] && out2+="${sep}${dim}${session_name}${reset}"
 [ -n "$session_name" ] && [ -z "$out2" ] && out2="${dim}${session_name}${reset}"
+[ -n "$transcript_file" ] && {
+    [ -n "$out2" ] && out2+="${sep}"
+    out2+="${dim}${transcript_file}${reset}"
+}
 [ -n "$wakeup_reason" ] && {
     [ -n "$out2" ] && out2+="${sep}"
     out2+="${dim}⏰ ${wakeup_reason}${reset}"
