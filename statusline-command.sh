@@ -131,6 +131,14 @@ model="${model/ context/}"
 profile="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 profile="${profile##*/}"
 profile="${profile#.}"
+# Compact multi-word profiles: "claude-minca" → "claudem"
+# (first word + first letter of the second word).
+if [[ "$profile" == *-* ]]; then
+    first="${profile%%-*}"
+    rest="${profile#*-}"
+    second="${rest%%-*}"
+    profile="${first}${second:0:1}"
+fi
 
 branch=""
 [ -n "$cwd" ] && branch=$(git -C "$cwd" --no-optional-locks symbolic-ref --short HEAD 2>/dev/null)
@@ -378,11 +386,21 @@ if [ -z "$rl_five" ] && [ -z "$rl_seven" ] && [ -n "$cost_usd" ]; then
     fi
 fi
 
-# Last interaction time — transcript mtime, shown next to cache on the usage line
+# Last interaction time — transcript mtime, shown next to cache on the usage
+# line — followed by the next 5h rate-limit reset clock time.
 last_ts=""
 [ -n "$transcript_path" ] && [ -f "$transcript_path" ] && \
     last_ts=$(stat -f %m "$transcript_path" 2>/dev/null || stat -c %Y "$transcript_path" 2>/dev/null)
-[ -n "$last_ts" ] && addu "${dim}⌚ $(fmt_clock "$last_ts")${reset}"
+clock_str=""
+[ -n "$last_ts" ] && clock_str="${dim}$(fmt_clock "$last_ts")${reset}"
+
+reset_str=""
+[ -n "$rl_resets_5h" ] && [ "$rl_resets_5h" -gt "$now" ] 2>/dev/null && \
+    reset_str="${dim}↻ $(fmt_clock "$rl_resets_5h")${reset}"
+
+[ -n "$clock_str" ] && [ -n "$reset_str" ] && addu "${clock_str} ${reset_str}"
+[ -n "$clock_str" ] && [ -z "$reset_str" ] && addu "$clock_str"
+[ -z "$clock_str" ] && [ -n "$reset_str" ] && addu "$reset_str"
 
 printf "%b\n" "$out"
 
