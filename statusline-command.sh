@@ -116,6 +116,12 @@ used=$(echo "$input"  | jq -r '.context_window.used_percentage // empty')
 model="${model#Claude }"
 model="${model/ context/}"
 
+# Active profile = basename of CLAUDE_CONFIG_DIR (e.g. ~/.claude → "claude",
+# ~/.claude-work → "claude-work"). Distinguishes per-profile aliases.
+profile="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+profile="${profile##*/}"
+profile="${profile#.}"
+
 branch=""
 [ -n "$cwd" ] && branch=$(git -C "$cwd" --no-optional-locks symbolic-ref --short HEAD 2>/dev/null)
 
@@ -131,7 +137,6 @@ api_duration_ms=$(echo "$input"| jq -r '.cost.total_api_duration_ms // empty')
 lines_added=$(echo "$input"    | jq -r '.cost.total_lines_added // empty')
 lines_removed=$(echo "$input"  | jq -r '.cost.total_lines_removed // empty')
 session_id=$(echo "$input"     | jq -r '.session_id // empty')
-session_name=$(echo "$input"   | jq -r '.session_name // empty')
 transcript_path=$(echo "$input"| jq -r '.transcript_path // empty')
 transcript_file="${transcript_path##*/}"
 transcript_file="${transcript_file%.jsonl}"
@@ -167,6 +172,14 @@ fi
 
 # ===== Assemble =====
 out=""
+
+# Profile badge — color auto-derived from the name so each profile is
+# visually distinct without hardcoding any specific profile.
+if [ -n "$profile" ]; then
+    palette=("$blue" "$amber" "$cyan" "$green" "$magenta" "$orange")
+    pidx=$(( $(printf '%s' "$profile" | cksum | cut -d' ' -f1) % ${#palette[@]} ))
+    add "${palette[$pidx]}${profile}${reset}"
+fi
 
 # Model — amber for Opus, cyan for Haiku, blue otherwise
 if [ -n "$model" ]; then
@@ -362,8 +375,6 @@ if [ -n "$cwd" ]; then
     cwd_display="${cwd/#$HOME/~}"
     out2="${dim}${cwd_display}${reset}"
 fi
-[ -n "$session_name" ] && [ -n "$out2" ] && out2+="${sep}${dim}${session_name}${reset}"
-[ -n "$session_name" ] && [ -z "$out2" ] && out2="${dim}${session_name}${reset}"
 [ -n "$transcript_file" ] && {
     [ -n "$out2" ] && out2+="${sep}"
     out2+="${dim}${transcript_file}${reset}"

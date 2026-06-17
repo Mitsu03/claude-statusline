@@ -44,6 +44,7 @@ Add to `~/.claude/settings.json`:
 
 ### Pro/Max plans
 
+- **Profile** — basename of `CLAUDE_CONFIG_DIR` (e.g. `claude`, `claude-work`), so you can tell which profile/alias the session is using. Color is auto-derived from the name, so each profile stays visually distinct. Shown on both plan types
 - **Model** — color-coded by family: amber (Opus), cyan (Haiku), blue (Sonnet)
 - **Git branch** — magenta, with `⎇` prefix. Followed by a dirty-state indicator: `✓` (dim green) when clean, otherwise `+N` staged (green), `~N` modified (yellow), `?N` untracked (dim) — each part omitted when zero
 - **Context window %** — cyan under 50%, orange 50-80%, red above 80%
