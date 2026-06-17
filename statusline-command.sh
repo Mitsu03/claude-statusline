@@ -68,6 +68,13 @@ fmt_time() {
     [ "$m" -gt 99 ] && echo "$((m / 60))h" || echo "${m}m"
 }
 
+# epoch seconds → local clock time (HH:MM). BSD date -r, GNU date -d fallback.
+fmt_clock() {
+    local ts="$1"
+    [ -z "$ts" ] && return
+    date -r "$ts" +%H:%M 2>/dev/null || date -d "@$ts" +%H:%M 2>/dev/null
+}
+
 # projected% = used% × duration / elapsed
 # ↑ will exhaust before reset | → on pace | ↓ under-consuming
 pace_arrow() {
@@ -91,8 +98,10 @@ pace_arrow() {
         fi
     fi
 
+    # Exhaustion clock time: when usage hits 100% at the current pace.
     time_left_fmt=""
-    [ -n "$time_left_m" ] && time_left_fmt=" ${time_color}$(fmt_time "$time_left_m")${reset}"
+    [ -n "$time_left_m" ] && \
+        time_left_fmt=" ${time_color}$(fmt_clock $(( now + time_left_m * 60 )))${reset}"
 
     if   [ "$projected" -gt 115 ]; then arrow_str="${red}↑${reset}"
     elif [ "$projected" -gt 85  ]; then arrow_str="${yellow}→${reset}"
@@ -105,7 +114,8 @@ pace_arrow() {
     printf '%s' "${pace_str}${arrow_str}${time_left_fmt}"
 }
 
-add() { [ -z "$out" ] && out+="$1" || out+="${sep}$1"; }
+add()  { [ -z "$out" ]   && out+="$1"   || out+="${sep}$1"; }
+addu() { [ -z "$usage" ] && usage+="$1" || usage+="${sep}$1"; }
 
 # ===== Extract data =====
 model=$(echo "$input" | jq -r '.model.display_name // empty')
@@ -172,6 +182,7 @@ fi
 
 # ===== Assemble =====
 out=""
+usage=""
 
 # Profile badge — color auto-derived from the name so each profile is
 # visually distinct without hardcoding any specific profile.
@@ -264,9 +275,9 @@ if [ -n "$rl_five" ]; then
         t5=$(fmt_time $(( (rl_resets_5h - now) / 60 )))
 
     if [ -n "$t5" ]; then
-        add "${pct_color}${t5}:${f}%${arrow5}${reset}"
+        addu "${pct_color}${t5}:${f}%${arrow5}${reset}"
     else
-        add "${pct_color}${f}%${arrow5}${reset}"
+        addu "${pct_color}${f}%${arrow5}${reset}"
     fi
 fi
 
@@ -280,9 +291,9 @@ if [ -n "$rl_seven" ]; then
         t7=$(fmt_time $(( (rl_resets_7d - now) / 60 )))
 
     if [ -n "$t7" ]; then
-        add "${cyan}${t7}:${s}%${arrow7}${reset}"
+        addu "${cyan}${t7}:${s}%${arrow7}${reset}"
     else
-        add "${cyan}7d:${s}%${arrow7}${reset}"
+        addu "${cyan}7d:${s}%${arrow7}${reset}"
     fi
 fi
 
@@ -294,7 +305,7 @@ if [ -n "$rl_five" ] || [ -n "$rl_seven" ]; then
         if   [ "$hit_pct" -ge 80 ]; then cache_color="$green"
         elif [ "$hit_pct" -ge 50 ]; then cache_color="$cyan"
         else cache_color="$orange"; fi
-        add "${dim}cache${reset} ${cache_color}${hit_pct}%${reset}"
+        addu "${dim}cache${reset} ${cache_color}${hit_pct}%${reset}"
     fi
 fi
 
@@ -318,11 +329,11 @@ if [ -z "$rl_five" ] && [ -z "$rl_seven" ] && [ -n "$cost_usd" ]; then
         if   [ "$hit_pct" -ge 80 ]; then cache_color="$green"
         elif [ "$hit_pct" -ge 50 ]; then cache_color="$cyan"
         else cache_color="$orange"; fi
-        add "${cost_str}${sep}${dim}cache${reset} ${cache_color}${hit_pct}%${reset}"
+        addu "${cost_str}${sep}${dim}cache${reset} ${cache_color}${hit_pct}%${reset}"
         cost_str=""
     fi
 
-    [ -n "$cost_str" ] && add "$cost_str"
+    [ -n "$cost_str" ] && addu "$cost_str"
 
     # Cost per 1k tokens + net lines
     total_tokens=$(( ${total_input:-0} + ${total_output:-0} ))
@@ -336,7 +347,7 @@ if [ -z "$rl_five" ] && [ -z "$rl_seven" ] && [ -n "$cost_usd" ]; then
         else
             net_str="${red}${net_lines}${reset}"
         fi
-        [ -n "$tok_str" ] && add "${tok_str} ${net_str}"
+        [ -n "$tok_str" ] && addu "${tok_str} ${net_str}"
     fi
 
     # Budget tracking — accumulated across billing period
@@ -362,14 +373,23 @@ if [ -z "$rl_five" ] && [ -z "$rl_seven" ] && [ -n "$cost_usd" ]; then
             fi
 
             period_fmt=$(printf "$%.2f" "$period_total")
-            add "${bgt_color}${period_fmt}/${budget}${time_left_fmt}${reset}"
+            addu "${bgt_color}${period_fmt}/${budget}${time_left_fmt}${reset}"
         fi
     fi
 fi
 
+# Last interaction time — transcript mtime, shown next to cache on the usage line
+last_ts=""
+[ -n "$transcript_path" ] && [ -f "$transcript_path" ] && \
+    last_ts=$(stat -f %m "$transcript_path" 2>/dev/null || stat -c %Y "$transcript_path" 2>/dev/null)
+[ -n "$last_ts" ] && addu "${dim}⌚ $(fmt_clock "$last_ts")${reset}"
+
 printf "%b\n" "$out"
 
-# Line 2: cwd + session name
+# Line 2: usage — rate limits / cost, cache, last interaction
+[ -n "$usage" ] && printf "%b\n" "$usage"
+
+# Line 3: cwd + transcript id
 out2=""
 if [ -n "$cwd" ]; then
     cwd_display="${cwd/#$HOME/~}"

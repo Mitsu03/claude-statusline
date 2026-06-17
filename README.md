@@ -42,6 +42,8 @@ Add to `~/.claude/settings.json`:
 
 ## What it shows
 
+Three lines: identity (profile, model, effort, branch, context), usage (rate limits or cost, cache, budget, last-interaction time) on its own line, then location (cwd, transcript id).
+
 ### Pro/Max plans
 
 - **Profile** — basename of `CLAUDE_CONFIG_DIR` (e.g. `claude`, `claude-work`), so you can tell which profile/alias the session is using. Color is auto-derived from the name, so each profile stays visually distinct. Shown on both plan types
@@ -112,8 +114,8 @@ Each rate limit reads `time_until_reset:used%:on_pace%↓`. The third figure is 
 
 The arrow projects usage at reset time:
 
-- `↑` red — burning fast, will exhaust the limit before reset. Followed by the estimated time until you hit 100% (e.g. `↑ 2h` = limit reached in ~2 hours). Color reflects urgency: red if under 33% of the window remains, orange under 66%, green otherwise
-- `→` yellow — on pace, roughly at 100% by reset
-- `↓` green — under-consuming, won't hit the limit
+- `↑` red — burning fast, will exhaust the limit before reset. Followed by the wall-clock time you'll hit 100% at the current pace (e.g. `↑ 16:20` = limit reached around 16:20). Color reflects urgency: red if under 33% of the window remains, orange under 66%, green otherwise
+- `→` yellow — on pace, roughly at 100% by reset. Also shows the projected exhaustion time
+- `↓` green — under-consuming, won't hit the limit (no time shown)
 
 Projection formula: `projected% = used% × window_duration / elapsed`. Suppressed during the first 2% of the window to avoid noise.
