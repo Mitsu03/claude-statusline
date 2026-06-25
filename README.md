@@ -48,11 +48,12 @@ Three lines: identity (profile, model, effort, branch, context), usage (rate lim
 
 - **Profile** — basename of `CLAUDE_CONFIG_DIR` (e.g. `claude`, `claude-work`), so you can tell which profile/alias the session is using. Color is auto-derived from the name, so each profile stays visually distinct. Shown on both plan types
 - **Model** — color-coded by family: amber (Opus), cyan (Haiku), blue (Sonnet)
-- **Git branch** — magenta, with `⎇` prefix. Followed by a dirty-state indicator: `✓` (dim green) when clean, otherwise `+N` staged (green), `~N` modified (yellow), `?N` untracked (dim) — each part omitted when zero
+- **Git branch** — magenta, with `⎇` prefix. Followed by dirty-state indicators: `✓` (dim green) when clean, otherwise `+N` staged (green), `~N` modified (yellow), `?N` untracked (dim). Then sync state: `⇡N` (orange) unpushed commits, `⇣N` (cyan) commits available to pull. Remote state updates via a background fetch that runs with the PR cache refresh (debounced to 10 min per branch)
 - **Context window %** — cyan under 50%, orange 50-80%, red above 80%
 - **5h rate limit** — `time_until_reset:used%:on_pace%↓` format, color-coded by usage
 - **7d rate limit** — same format, cyan
 - **Cache hit rate** — `cache 99%`, ratio of cached input tokens to total. Green ≥80%, cyan ≥50%, orange below
+- **PR number** — `PR#42` (blue), open pull request for the current branch. Read from a per-repo cache under `local/.pr-cache` (gitignored), refreshed in the background via `gh pr list`. Only shown for repos with a `local/` directory
 
 ### API/enterprise plans
 
