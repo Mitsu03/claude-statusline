@@ -43,6 +43,27 @@ if [ "${1:-}" = "sync" ] && [ -n "${2:-}" ]; then
     exit 0
 fi
 
+# pr-refresh subcommand: bash statusline-command.sh pr-refresh <repo_root> <branch>
+# Background-fetches the open PR number for <branch> into <repo_root>/local/.pr-cache.
+# Runs detached from the render; failures are silent (the cache keeps its last
+# value until a refresh succeeds). An empty result drops the branch's entry, so
+# a merged/closed PR stops showing on the next refresh.
+if [ "${1:-}" = "pr-refresh" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; then
+    root="$2"; br="$3"
+    [ -d "$root/local" ] || exit 0
+    # Mirror the .zshrc gh wrapper: Minca repos use the gh-minca account config.
+    case "$root/" in "$HOME/Code/minca/"*) export GH_CONFIG_DIR="$HOME/.config/gh-minca" ;; esac
+    git -C "$root" --no-optional-locks fetch --quiet 2>/dev/null
+    num=$(cd "$root" && gh pr list --head "$br" --state open --json number \
+          --jq '.[0].number // empty' 2>/dev/null)
+    cache="$root/local/.pr-cache"
+    tmp=$(mktemp "${cache}.XXXXXX") || exit 0
+    [ -f "$cache" ] && awk -F'\t' -v b="$br" '$1 != b' "$cache" > "$tmp"
+    [ -n "$num" ] && printf '%s\t%s\n' "$br" "$num" >> "$tmp"
+    mv "$tmp" "$cache"
+    exit 0
+fi
+
 input=$(cat)
 [ -z "$input" ] && printf "Claude" && exit 0
 
@@ -165,6 +186,32 @@ total_output=$(echo "$input"   | jq -r '.context_window.total_output_tokens // e
 cache_read=$(echo "$input"     | jq -r '.context_window.current_usage.cache_read_input_tokens // empty')
 cache_create=$(echo "$input"   | jq -r '.context_window.current_usage.cache_creation_input_tokens // empty')
 
+# ===== PR number for the current branch =====
+# Read instantly from a gitignored cache under the repo's local/ dir, then
+# refresh it in the background — debounced so frequent renders don't spawn gh.
+# A new branch (no lock entry) refreshes at once; otherwise at most every 10 min.
+# The cached value never expires on its own; it is only overwritten by a refresh.
+pr_num=""
+if [ -n "$branch" ] && [ -n "$cwd" ]; then
+    repo_root=$(git -C "$cwd" --no-optional-locks rev-parse --show-toplevel 2>/dev/null)
+    if [ -n "$repo_root" ] && [ -d "$repo_root/local" ]; then
+        pr_cache="$repo_root/local/.pr-cache"
+        pr_lock="$repo_root/local/.pr-cache.lock"
+        [ -f "$pr_cache" ] && \
+            pr_num=$(awk -F'\t' -v b="$branch" '$1==b {print $2; exit}' "$pr_cache")
+        last=$(awk -F'\t' -v b="$branch" '$1==b {print $2; exit}' "$pr_lock" 2>/dev/null)
+        if [ -z "$last" ] || [ $(( now - last )) -gt 600 ]; then
+            # Stamp the attempt first (debounce even if the refresh fails), then detach.
+            if tmp_lock=$(mktemp "${pr_lock}.XXXXXX" 2>/dev/null); then
+                [ -f "$pr_lock" ] && awk -F'\t' -v b="$branch" '$1!=b' "$pr_lock" > "$tmp_lock"
+                printf '%s\t%s\n' "$branch" "$now" >> "$tmp_lock"
+                mv "$tmp_lock" "$pr_lock"
+            fi
+            ( bash "$0" pr-refresh "$repo_root" "$branch" >/dev/null 2>&1 & )
+        fi
+    fi
+fi
+
 # ===== Usage tracking =====
 today=$(date +%Y-%m-%d)
 daily_total=""
@@ -237,6 +284,10 @@ if [ -n "$branch" ]; then
         [ "$modified"  -gt 0 ] && git_str+=" ${yellow}~${modified}${reset}"
         [ "$untracked" -gt 0 ] && git_str+=" ${dim}?${untracked}${reset}"
     fi
+    unpushed=$(git -C "$cwd" --no-optional-locks rev-list --count @{u}..HEAD 2>/dev/null)
+    [ -n "$unpushed" ] && [ "$unpushed" -gt 0 ] && git_str+=" ${orange}⇡${unpushed}${reset}"
+    unpulled=$(git -C "$cwd" --no-optional-locks rev-list --count HEAD..@{u} 2>/dev/null)
+    [ -n "$unpulled" ] && [ "$unpulled" -gt 0 ] && git_str+=" ${cyan}⇣${unpulled}${reset}"
     add "$git_str"
 fi
 
@@ -401,6 +452,9 @@ reset_str=""
 [ -n "$clock_str" ] && [ -n "$reset_str" ] && addu "${clock_str} ${reset_str}"
 [ -n "$clock_str" ] && [ -z "$reset_str" ] && addu "$clock_str"
 [ -z "$clock_str" ] && [ -n "$reset_str" ] && addu "$reset_str"
+
+# PR for the current branch — pinned to the end of the usage line
+[ -n "$pr_num" ] && addu "${blue}PR#${pr_num}${reset}"
 
 printf "%b\n" "$out"
 
