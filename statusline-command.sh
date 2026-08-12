@@ -3,13 +3,40 @@
 
 set -f
 
+# Git Bash (Windows) has no bc. Emulate the subset this script uses —
+# "scale=N; <expr>" and plain arithmetic/comparisons — by interpolating the
+# expression into an awk program (the shell has already expanded it to numbers).
+if ! command -v bc >/dev/null 2>&1; then
+    bc() {
+        local e s=0
+        e=$(cat)
+        case "$e" in
+            scale=*\;*) s="${e#scale=}"; s="${s%%;*}"; e="${e#*;}" ;;
+        esac
+        awk "BEGIN{printf \"%.${s}f\n\", ($e)}" 2>/dev/null
+    }
+fi
+
+# In-place sed without the BSD-only `-i ''` (which GNU sed reads as a filename).
+# Write to a sibling temp file and swap, which works on every sed.
+sed_inplace() {
+    local script="$1" file="$2" tmp
+    tmp=$(mktemp "${file}.XXXXXX") || return 1
+    if sed "$script" "$file" > "$tmp"; then
+        mv "$tmp" "$file"
+    else
+        rm -f "$tmp"
+        return 1
+    fi
+}
+
 usage_dir="${CLAUDE_USAGE_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/usage}"
 
 # budget subcommand: bash statusline-command.sh budget <new_budget>
 # Updates the budget= line in .config.
 if [ "${1:-}" = "budget" ] && [ -n "${2:-}" ]; then
     [ ! -f "$usage_dir/.config" ] && echo "no config at $usage_dir/.config" && exit 1
-    sed -i '' "s/^budget=.*/budget=$2/" "$usage_dir/.config"
+    sed_inplace "s/^budget=.*/budget=$2/" "$usage_dir/.config"
     cat "$usage_dir/.config"
     exit 0
 fi
@@ -18,7 +45,7 @@ fi
 # Directly overwrites initial_usage= in .config (no offset files written).
 if [ "${1:-}" = "usage" ] && [ -n "${2:-}" ]; then
     [ ! -f "$usage_dir/.config" ] && echo "no config at $usage_dir/.config" && exit 1
-    sed -i '' "s/^initial_usage=.*/initial_usage=$2/" "$usage_dir/.config"
+    sed_inplace "s/^initial_usage=.*/initial_usage=$2/" "$usage_dir/.config"
     cat "$usage_dir/.config"
     exit 0
 fi
@@ -38,7 +65,7 @@ if [ "${1:-}" = "sync" ] && [ -n "${2:-}" ]; then
         [ -n "$cost" ] && printf '%s\t-%s\toffset\t0\t0\t0\n' "$(date +%s)" "$cost" > "${f}_offset"
     done
     set -f
-    sed -i '' "s/^initial_usage=.*/initial_usage=$2/; s/^start_ts=.*/start_ts=0/" "$usage_dir/.config"
+    sed_inplace "s/^initial_usage=.*/initial_usage=$2/; s/^start_ts=.*/start_ts=0/" "$usage_dir/.config"
     cat "$usage_dir/.config"
     exit 0
 fi
@@ -71,6 +98,21 @@ reset='\033[0m'
 sep=" ${dim}│${reset} "
 
 # ===== Helpers =====
+
+# Canonical path shape for display/comparison: forward slashes, and on Windows
+# the "C:/Users/me" drive form (msys renders $HOME as "/c/Users/me"). No-op on
+# macOS/Linux, where the drive rewrite would corrupt paths like "/a/b".
+norm_path() {
+    local p="${1//\\//}"
+    case "$OSTYPE" in
+        msys* | cygwin* | win32)
+            case "$p" in
+                /[a-zA-Z]/* | /[a-zA-Z]) p="${p:1:1}:${p:2}" ;;
+            esac
+            ;;
+    esac
+    printf '%s' "$p"
+}
 
 fmt_time() {
     local m="$1"
@@ -138,7 +180,7 @@ model="${model/ context/}"
 
 # Active profile = basename of CLAUDE_CONFIG_DIR (e.g. ~/.claude → "claude",
 # ~/.claude-work → "claude-work"). Distinguishes per-profile aliases.
-profile="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+profile=$(norm_path "${CLAUDE_CONFIG_DIR:-$HOME/.claude}")
 profile="${profile##*/}"
 profile="${profile#.}"
 # Compact multi-word profiles: "claude-minca" → "claudem"
@@ -166,6 +208,10 @@ lines_added=$(echo "$input"    | jq -r '.cost.total_lines_added // empty')
 lines_removed=$(echo "$input"  | jq -r '.cost.total_lines_removed // empty')
 session_id=$(echo "$input"     | jq -r '.session_id // empty')
 transcript_path=$(echo "$input"| jq -r '.transcript_path // empty')
+# Normalize before the basename strip: on Git Bash this arrives with backslashes,
+# so "##*/" would strip nothing and leak the whole path into the final printf %b,
+# which then mangles it interpreting \U, \0… as escapes.
+transcript_path=$(norm_path "$transcript_path")
 transcript_file="${transcript_path##*/}"
 transcript_file="${transcript_file%.jsonl}"
 effort_level=$(echo "$input"   | jq -r '.effort.level // empty')
@@ -426,7 +472,7 @@ fi
 # line — followed by the next 5h rate-limit reset clock time.
 last_ts=""
 [ -n "$transcript_path" ] && [ -f "$transcript_path" ] && \
-    last_ts=$(stat -f %m "$transcript_path" 2>/dev/null || stat -c %Y "$transcript_path" 2>/dev/null)
+    last_ts=$(stat -c %Y "$transcript_path" 2>/dev/null || stat -f %m "$transcript_path" 2>/dev/null)
 clock_str=""
 [ -n "$last_ts" ] && clock_str="${dim}$(fmt_clock "$last_ts")${reset}"
 
@@ -449,7 +495,18 @@ printf "%b\n" "$out"
 # Line 3: cwd + transcript id
 out2=""
 if [ -n "$cwd" ]; then
-    cwd_display="${cwd/#$HOME/~}"
+    # Claude Code hands us a native path, so on Git Bash cwd is "C:\Users\me\..."
+    # while $HOME is "/c/Users/me" — a plain prefix strip never matches. Put both
+    # in the same shape first (forward slashes, "C:/..." drive form), then compare
+    # case-insensitively, since Windows paths are.
+    cwd_display=$(norm_path "$cwd")
+    home_norm=$(norm_path "${USERPROFILE:-$HOME}")
+    if [ -n "$home_norm" ]; then
+        case "${cwd_display,,}" in
+            "${home_norm,,}" | "${home_norm,,}"/*)
+                cwd_display="~${cwd_display:${#home_norm}}" ;;
+        esac
+    fi
     out2="${dim}${cwd_display}${reset}"
 fi
 [ -n "$transcript_file" ] && {
