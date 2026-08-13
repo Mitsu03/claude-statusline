@@ -120,11 +120,18 @@ fmt_time() {
     [ "$m" -gt 99 ] && echo "$((m / 60))h" || echo "${m}m"
 }
 
-# epoch seconds → local clock time (HH:MM). BSD date -r, GNU date -d fallback.
+# epoch seconds → local clock time, day-qualified when it is not today:
+# "22:30" for today, "Sat 22:30" otherwise. Over the 7d window a bare HH:MM is
+# ambiguous — the same clock time recurs every day of the period.
+# BSD date -r, GNU date -d fallback.
 fmt_clock() {
     local ts="$1"
     [ -z "$ts" ] && return
-    date -r "$ts" +%H:%M 2>/dev/null || date -d "@$ts" +%H:%M 2>/dev/null
+    local fmt='+%H:%M' day today
+    day=$(date -r "$ts" +%Y%j 2>/dev/null || date -d "@$ts" +%Y%j 2>/dev/null)
+    today=$(date +%Y%j)
+    [ -n "$day" ] && [ "$day" != "$today" ] && fmt='+%a %H:%M'
+    date -r "$ts" "$fmt" 2>/dev/null || date -d "@$ts" "$fmt" 2>/dev/null
 }
 
 # projected% = used% × duration / elapsed
@@ -476,9 +483,20 @@ last_ts=""
 clock_str=""
 [ -n "$last_ts" ] && clock_str="${dim}$(fmt_clock "$last_ts")${reset}"
 
-reset_str=""
+# Reset clocks: 5h first, then 7d. Both hang off one ↻ — the weekly one is
+# always day-qualified in practice, so the two never read as the same window.
+resets=""
 [ -n "$rl_resets_5h" ] && [ "$rl_resets_5h" -gt "$now" ] 2>/dev/null && \
-    reset_str="${dim}↻ $(fmt_clock "$rl_resets_5h")${reset}"
+    resets=$(fmt_clock "$rl_resets_5h")
+if [ -n "$rl_resets_7d" ] && [ "$rl_resets_7d" -gt "$now" ] 2>/dev/null; then
+    if [ -n "$resets" ]; then
+        resets+=" · $(fmt_clock "$rl_resets_7d")"
+    else
+        resets=$(fmt_clock "$rl_resets_7d")
+    fi
+fi
+reset_str=""
+[ -n "$resets" ] && reset_str="${dim}↻ ${resets}${reset}"
 
 [ -n "$clock_str" ] && [ -n "$reset_str" ] && addu "${clock_str} ${reset_str}"
 [ -n "$clock_str" ] && [ -z "$reset_str" ] && addu "$clock_str"
