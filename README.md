@@ -53,6 +53,7 @@ Three lines: identity (profile, model, effort, branch, context), usage (rate lim
 - **5h rate limit** — `time_until_reset:used%:on_pace%↓` format, color-coded by usage
 - **7d rate limit** — same format, cyan
 - **Cache hit rate** — `cache 99%`, ratio of cached input tokens to total. Green ≥80%, cyan ≥50%, orange below
+- **Reset clocks** — `↻ 02:21 · Mon 17:14`, when each window rolls over: 5h first, then 7d. Clock times outside today are day-qualified, so the weekly reset never reads as the same time as the 5h one
 - **PR number** — `PR#42` (blue), open pull request for the current branch. Read directly from the statusline JSON's `pr.number` field (Claude Code resolves this natively), so it needs no `gh` calls or caching. Absent until a PR is found, and removed once it merges or closes
 
 ### API/enterprise plans
@@ -115,7 +116,7 @@ Each rate limit reads `time_until_reset:used%:on_pace%↓`. The third figure is 
 
 The arrow projects usage at reset time:
 
-- `↑` red — burning fast, will exhaust the limit before reset. Followed by the wall-clock time you'll hit 100% at the current pace (e.g. `↑ 16:20` = limit reached around 16:20). Color reflects urgency: red if under 33% of the window remains, orange under 66%, green otherwise
+- `↑` red — burning fast, will exhaust the limit before reset. Followed by the wall-clock time you'll hit 100% at the current pace (e.g. `↑ 16:20` = limit reached around 16:20). Times that don't land on today are day-qualified (`↑ Sat 16:20`), which is what usually happens on the 7d window. Color reflects urgency: red if under 33% of the window remains, orange under 66%, green otherwise
 - `→` yellow — on pace, roughly at 100% by reset. Also shows the projected exhaustion time
 - `↓` green — under-consuming, won't hit the limit (no time shown)
 
